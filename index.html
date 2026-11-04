@@ -68,7 +68,8 @@ svg{display:block}
 .srow.done .sn{background:var(--acf);color:var(--onac);font-weight:700}
 .pv{font-size:13px;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pv .dot{width:8px;height:8px;margin-left:5px}
-.ar{display:grid;place-items:center;color:var(--in)}.ar svg{width:12px;height:14px}
+.ar{display:grid;place-items:center;color:var(--ok)}.ar.dn{color:var(--wa)}.ar svg{width:12px;height:14px}
+.recl{margin:8px 0 0;padding:8px 10px;border-radius:12px;background:var(--panel);font-size:13px;line-height:1.35}.recl b{font-weight:700}.recl small{display:block;margin-top:3px;font-size:12px}
 .srow input{padding:8px 2px;text-align:center;font-size:17px;border-radius:8px;border-color:transparent;-moz-appearance:textfield}
 .srow.alt input{background:var(--card)}
 .srow input::placeholder{color:var(--mu);opacity:.75}
@@ -820,12 +821,13 @@ function gen(sure){
 const inc=e=>UN()==="lb"?(e.l?10:5):(e.l?5:2.5);
 const avg=a=>a.reduce((x,y)=>x+y,0)/a.length;
 /* últimas k sesiones de un ejercicio, la más reciente primero; cada sesión = series de una fecha */
-function hist(n,k){const by={};log.forEach(l=>{if(l.ex===n)(by[l.d]=by[l.d]||[]).push(l)});return Object.keys(by).sort().reverse().slice(0,k).map(d=>by[d])}
-const sess=name=>hist(name,1)[0]||null;
+/* sesiones de un ejercicio (la más reciente primero); bf = solo las anteriores a esa fecha */
+function hist(n,k,bf){const by={};log.forEach(l=>{if(l.ex===n&&!(bf&&l.d>=bf))(by[l.d]=by[l.d]||[]).push(l)});return Object.keys(by).sort().reverse().slice(0,k).map(d=>by[d])}
+const sess=(name,bf)=>hist(name,1,bf)[0]||null;
 /* rendimiento de una sesión: 1RM estimado con peso; volumen de reps (o segundos) en peso corporal */
 const score=(e,s)=>e.bw?s.reduce((a,l)=>a+l.r*(1+l.w/40),0):Math.max(...s.map(l=>l.w*(1+l.r/30)));
-function trend(e){
-  const h=hist(e.n,3);if(h.length<2)return null;
+function trend(e,bf){
+  const h=hist(e.n,3,bf);if(h.length<2)return null;
   const m=h.map(s=>score(e,s)),b=avg(m.slice(1));
   return{n:h.length,p:b?(m[0]-b)/b*100:0,stall:h.length>2&&m[2]>0&&m[0]<=m[2]*1.01&&m[1]<=m[2]*1.01,drop:h.length>2&&m[0]<m[1]*.97&&m[1]<m[2]*.97};
 }
@@ -836,8 +838,9 @@ function rung(n,dir){const L=LAD[n];if(!L||!plan)return null;const s=SL[L.c];for
 const easy=s=>s.length>0&&s.every(a=>a.x===1);
 const hard=s=>{const v=s.filter(a=>a.x).map(a=>a.x);return v.length>0&&avg(v)>=2.5};
 const HARD=" Tus series se sintieron difíciles (rojo): no aumentes la dificultad hasta que se sientan en amarillo.";
-function rec(e){
-  const s=sess(e.n),t=trend(e),u=e.t?" s":" reps";
+/* bf: analiza solo las sesiones anteriores a esa fecha (al entrenar, today(): la recomendación no cambia a mitad de sesión) */
+function rec(e,bf){
+  const s=sess(e.n,bf),t=trend(e,bf),u=e.t?" s":" reps";
   if(!s)return{k:"new",t:"Sin datos",m:e.bw?"Haz tus series con buena técnica y registra "+(e.t?"los segundos.":"las reps."):(e.w?"Empieza con "+e.w+" "+UN()+".":"Elige un peso con el que llegues a "+e.hi+" reps dejando 2 en reserva y regístralo."),w:e.w};
   if(e.bw){
     const n=s.length,av=avg(s.map(a=>a.r)),top=n>=e.s&&s.every(a=>a.r>=e.hi),r=e.t?Math.min(e.hi,Math.round(av)+5):Math.min(e.hi,Math.floor(av)+1),nx=rung(e.n,1),pv=rung(e.n,-1);
@@ -1074,8 +1077,8 @@ function setNote(i,v){const k=today()+"|"+curEx(i).n;v=v.trim();if(v)notes[k]=v;
 const ARU='<svg viewBox="0 0 12 14" aria-label="sube"><path d="M2 7l4-4 4 4M2 12l4-4 4 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ARD='<svg viewBox="0 0 12 14" aria-label="baja"><path d="M2 2l4 4 4-4M2 7l4 4 4-4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function exHead(e,i,letter,first,col,R){
-  const done=R.filter(Boolean).length,pn=prevNote(e.n);
-  return`<div class="eh"><button class="eth" onclick="tgHow(${i})" aria-label="Cómo se hace ${esc(e.n)}">${figEnd(EX[e.n].p)}</button><div class="en"><button class="exn" onclick="tgHow(${i})">${esc(e.n)}</button><small>${e.lo}-${e.hi}${e.t?" s":" reps"}${e.tr?" · meta "+e.tr:""}${!e.bw&&e.w?" · "+e.w+" "+UN():""}${col?" · "+done+"/"+R.length+" series":""}</small>${e.f?'<span class="tag" style="margin-left:0">enfoque</span>':""}${(ovrOf(selDay)||{})[i]?'<span class="tag" style="margin-left:0">solo hoy</span>':""}</div>${letter?`<b class="ltr">${letter}</b>`:""}<button class="ib" onclick="MENU=MENU===${i}?-1:${i};render()" aria-label="Opciones de ${esc(e.n)}">⋮</button>${first?`<button class="ib" onclick="tgCol(${i})" aria-label="${col?"Expandir":"Contraer"}">${col?"⌄":"⌃"}</button>`:""}</div>`
+  const done=R.filter(Boolean).length,pn=prevNote(e.n),pl=!prevS(e.n);   // pl: sin historial, se muestra la meta del plan
+  return`<div class="eh"><button class="eth" onclick="tgHow(${i})" aria-label="Cómo se hace ${esc(e.n)}">${figEnd(EX[e.n].p)}</button><div class="en"><button class="exn" onclick="tgHow(${i})">${esc(e.n)}</button><small>${e.lo}-${e.hi}${e.t?" s":" reps"}${pl&&e.tr?" · meta "+e.tr:""}${pl&&!e.bw&&e.w?" · "+e.w+" "+UN():""}${col?" · "+done+"/"+R.length+" series":""}</small>${e.f?'<span class="tag" style="margin-left:0">enfoque</span>':""}${(ovrOf(selDay)||{})[i]?'<span class="tag" style="margin-left:0">solo hoy</span>':""}</div>${letter?`<b class="ltr">${letter}</b>`:""}<button class="ib" onclick="MENU=MENU===${i}?-1:${i};render()" aria-label="Opciones de ${esc(e.n)}">⋮</button>${first?`<button class="ib" onclick="tgCol(${i})" aria-label="${col?"Expandir":"Contraer"}">${col?"⌄":"⌃"}</button>`:""}</div>`
   +(MENU===i?menuH(e,i):"")
   +(HOW.has(i)&&!col?`<div class="howp">${figBoth(EX[e.n].p)}<small class="cue">${pinf(e.n).c}</small></div>`:"")
   +(col?"":`<label class="note">✎<input value="${esc(noteOf(e.n))}" placeholder="${esc(pn?"Nota anterior: "+pn:"Añadir notas…")}" maxlength="140" aria-label="Notas de ${esc(e.n)}" onchange="setNote(${i},this.value)"></label>`);
@@ -1099,18 +1102,25 @@ function ssPanel(i){
 const tgHow=i=>{HOW.has(i)?HOW.delete(i):HOW.add(i);MENU=-1;render()};
 const tgCol=i=>{const n=curEx(i).n;COL.has(n)?COL.delete(n):COL.add(n);render()};
 function vBlock(d,b,first){
-  const h=b[0],ss=b.length>1,col=COL.has(d.ex[h].n),RS=b.map(i=>rowsOf(d.ex[i])),PV=b.map(i=>prevS(d.ex[i].n));
+  const h=b[0],ss=b.length>1,col=COL.has(d.ex[h].n),RS=b.map(i=>rowsOf(d.ex[i])),PV=b.map(i=>prevS(d.ex[i].n)),RC=b.map(i=>rec(d.ex[i],today()));
   let o=`<div class="card ex" id="c${h}">`;
   b.forEach((i,bk)=>{o+=exHead(d.ex[i],i,ss?String.fromCharCode(65+bk):"",bk===0,col,RS[bk])});
   b.forEach(i=>{if(rep===i)o+=repPanel(i);if(rep==="s"+i)o+=ssPanel(i)});
   if(col)return o+`</div>`;
+  /* recomendación de la app para hoy (analiza las sesiones anteriores): qué hacer y por qué */
+  b.forEach((i,bk)=>{const e=d.ex[i],r=RC[bk];if(r.k==="new")return;
+    /* al mantener, el objetivo es por serie (una rep más donde no se llegó al tope), igual que las flechas */
+    const u=e.t?" s":" reps",kg=!e.bw&&r.w?" con "+r.w+" "+UN():"",hold=r.k==="hold",
+      head=hold?e.s+" × hasta "+e.hi+u+kg:nextTxt(e,r),
+      msg=hold?(kg?"Mantén "+r.w+" "+UN()+" y suma ":"Suma ")+(e.t?"5 s":"1 rep")+" en cada serie que no llegó a "+e.hi+u+" (flechas ↑)."+(hard(sess(e.n,today()))?HARD:""):r.m;
+    o+=`<div class="recl"><span class="chip ${r.k}">${ss?String.fromCharCode(65+bk)+" · ":""}${r.k==="up"?"↑ ":r.k==="down"||r.k==="deload"?"↓ ":""}${r.t}</span> <b>${esc(head)}</b><small>${esc(msg)}</small></div>`});
   b.forEach((i,bk)=>{const n=d.ex[i].n,H=prevAll(n);if(!H.length)return;const op=HIS.has(n);
     o+=`<button class="lastb" onclick="tgHis(${i})" aria-expanded="${op}">↺ ${ss?String.fromCharCode(65+bk)+" · ":""}Última vez (${fmt(H[0][0].d)}): ${setsTxt(H[0])}<span>${H.length>1?(op?"▴":"▾ semanas anteriores"):""}</span></button>`
       +(op?`<div class="his">${H.slice(1).map(s=>`<div><small>${fmt(s[0].d)}</small><span>${setsTxt(s)}</span></div>`).join("")}</div>`:"")});
   const allT=b.every(i=>d.ex[i].t);
   o+=`<div class="srow sh"><span>SERIE</span><span>ANTERIOR</span><span style="grid-column:span 2">${UN().toUpperCase()}</span><span style="grid-column:span 2">${allT?"SEG":"REPS"}</span><span>ESFUERZO</span></div>`;
   const n=Math.max(...RS.map(r=>r.length));
-  for(let r=0;r<n;r++)b.forEach((i,bk)=>{if(r<RS[bk].length)o+=rowH(i,r,d.ex[i],RS[bk][r],PV[bk],RS[bk],(r+1)+(ss?String.fromCharCode(65+bk):""),ss&&bk%2===1)});
+  for(let r=0;r<n;r++)b.forEach((i,bk)=>{if(r<RS[bk].length)o+=rowH(i,r,d.ex[i],RS[bk][r],PV[bk],RS[bk],(r+1)+(ss?String.fromCharCode(65+bk):""),ss&&bk%2===1,RC[bk])});
   if(first)o+=`<small class="hint">Toca el círculo y elige el esfuerzo (<i class="dot fx1"></i> fácil · <i class="dot fx2"></i> medio · <i class="dot fx3"></i> difícil): la serie se guarda y empieza el descanso.</small>`;
   b.forEach(i=>{const e=d.ex[i],free=RS[b.indexOf(i)].findIndex(l=>!l),g=e.tr||e.hi;if(e.t&&free>=0)o+=`<button class="ghost" style="margin-top:10px" onclick="tStart('work',${g},[${i},${free}],'${esc(e.n)} · serie ${free+1} · ${g} s')">⏱ Cronometrar serie ${free+1} de ${esc(e.n)} (${g} s)</button>`});
   const lastB=blocks(d).at(-1)[0]===h;
@@ -1173,14 +1183,22 @@ function rowsOf(e){
 const baseLen=e=>e.s+(XR[e.n]||0);
 function blockOf(e){if(!plan)return null;const d=dayOf(selDay),i=d.ex.indexOf(e);return i<0?null:blocks(d).find(b=>b.includes(i)).map(j=>d.ex[j])}
 function planLen(e){const b=blockOf(e);return b?Math.max(...b.map(baseLen)):baseLen(e)}
-/* fila: en gris (placeholder) va lo que se hizo la última vez en esa serie, aunque fuera otro día (si esta vez hay más
-   series, la última registrada); sin historial, el objetivo del plan. Si se guarda sin escribir, se usa eso.
-   Las flechas indican si el objetivo del plan (peso/reps) sube o baja respecto a la última vez. */
-function rowH(i,j,e,l,pv,R,lab,alt){
-  const p=pv&&pv[j],q=p||(pv&&pv[pv.length-1]),dr=DR[e.n+"|"+j]||{};
-  const sw=q?q.w:e.w??(e.bw?0:""),sr=q?q.r:e.tr||e.hi;
-  const tw=l?l.w:e.w,tr=l?l.r:e.tr;
-  const arw=q&&tw!=null&&tw!==q.w?(tw>q.w?ARU:ARD):"",arr=q&&tr!=null&&tr!==q.r?(tr>q.r?ARU:ARD):"";
+/* objetivo de una serie según el análisis de la app (rec): subir/bajar/mantener el peso del ejercicio y, al mantener,
+   una rep más que la última vez en esa serie (5 s en ejercicios por tiempo) hasta el tope del rango. null = sin análisis
+   (primera vez) o cambio de progresión en calistenia (lo indica la recomendación del ejercicio). */
+function goalRow(e,q,rc){
+  if(!q||!rc||rc.k==="new"||rc.nx||rc.pv)return null;
+  const w=e.bw||rc.w==null?q.w:rc.w;
+  return{w,r:rc.k==="hold"?(w>q.w?q.r:Math.min(e.hi,q.r+(e.t?5:1))):rc.r};
+}
+/* fila: ANTERIOR = lo que se hizo la última vez en esa serie (aunque fuera otro día; si hoy hay más series, la última).
+   En gris (placeholder) va el objetivo que recomienda la app; sin historial, lo de la última vez o el objetivo del plan.
+   Si se guarda sin escribir, se usa eso. Las flechas son la recomendación: subir (verde) o bajar (ámbar) el peso o las
+   reps respecto a la última vez; sin flecha = igual que la última vez. */
+function rowH(i,j,e,l,pv,R,lab,alt,rc){
+  const p=pv&&pv[j],q=p||(pv&&pv[pv.length-1]),dr=DR[e.n+"|"+j]||{},g=goalRow(e,q,rc);
+  const sw=g?g.w:q?q.w:e.w??(e.bw?0:""),sr=g?g.r:q?q.r:e.tr||e.hi;
+  const arw=g&&!e.bw&&g.w!==q.w?(g.w>q.w?ARU:ARD):"",arr=g&&g.r!==q.r?(g.r>q.r?ARU:ARD):"";
   return `<div class="srow${l?" done":""}${alt?" alt":""}" id="s${i}_${j}"><b class="sn">${lab||j+1}</b><span class="pv">${p?p.w+" × "+p.r+(p.x?`<i class="dot fx${p.x}"></i>`:""):"—"}</span>`
   +`<input id="w${i}_${j}" type="number" inputmode="decimal" step="0.5" min="0" value="${l?l.w:dr.w??""}" placeholder="${sw}" aria-label="Peso serie ${lab||j+1}" oninput="draft(${i},${j},'w',this.value)" onchange="chW(${i},${j})"><i class="ar${arw===ARD?" dn":""}">${arw}</i>`
   +`<input id="r${i}_${j}" type="number" inputmode="numeric" min="0" value="${l?l.r:dr.r??""}" placeholder="${sr}" aria-label="${e.t?"Segundos":"Repeticiones"} serie ${lab||j+1}" oninput="draft(${i},${j},'r',this.value)" onchange="chR(${i},${j})"><i class="ar${arr===ARD?" dn":""}">${arr}</i>`
