@@ -86,6 +86,11 @@ svg{display:block}
 .menu>:first-child{border-top:0}
 .howp{margin:6px 0}
 .rsel{display:flex;gap:8px;margin-top:10px}
+.lastb{display:flex;gap:6px;width:100%;margin:8px 0 0;padding:8px 10px;border:0;border-radius:12px;background:var(--panel);color:var(--tx);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.lastb span{margin-left:auto;flex:none;color:var(--ac);font-weight:700;font-size:12px}
+.his{padding:2px 10px 4px;font-size:13px}.his div{display:flex;gap:10px;padding:5px 0;border-top:1px solid var(--bd)}.his small{flex:none;width:92px}
+.seq{margin-top:8px;padding:10px;border-radius:12px;background:var(--panel)}.seq .btns{margin-top:8px}.seq .ghost{background:var(--card)}
+.ssc{display:flex;flex-direction:column;align-items:flex-start;margin-top:6px;text-align:left;background:var(--card)}.ssc small{font-size:12px}
 .rsel .ghost{flex:1;width:auto;display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 6px;color:var(--tx);font-size:16px;font-weight:600}
 .rsel small{font-size:11px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.3px}
 .fxp{display:flex;gap:6px;padding:6px 0 8px}
@@ -668,6 +673,34 @@ chinge:["Puente de glúteos","Puente de glúteos a una pierna","Curl nórdico"],
 ccore:["Crunch abdominal","Plancha","Elevación de rodillas colgado","Elevación de piernas colgado","L-sit"]};
 const GRP={hpush:1,vpush:1,ipush:1,lat:1,tri:1,vpull:2,hpull:2,rear:2,bi:2,squat:3,hinge:3,lunge:3,ham:3,calf:3,core:4,cpush:1,cvpush:1,cdip:1,cpull:2,crow:2,csquat:3,clunge:3,chinge:3,ccore:4};
 const LAD={};["cpush","cvpush","cdip","cpull","crow","csquat","clunge","chinge","ccore"].forEach(c=>SL[c].forEach((n,i)=>{if(!LAD[n])LAD[n]={c,i}}));
+/* músculo principal de cada patrón: agrupa las opciones al cambiar/agregar ejercicios y arma superseries cruzadas */
+const MU={hpush:"Pecho",ipush:"Pecho",cpush:"Pecho",vpush:"Hombros",cvpush:"Hombros",lat:"Hombros",rear:"Hombro posterior",tri:"Tríceps",cdip:"Tríceps",
+vpull:"Espalda",hpull:"Espalda",cpull:"Espalda",crow:"Espalda",bi:"Bíceps",squat:"Cuádriceps",csquat:"Cuádriceps",lunge:"Cuádriceps",clunge:"Cuádriceps",
+hinge:"Femoral y glúteo",chinge:"Femoral y glúteo",ham:"Femoral y glúteo",calf:"Pantorrilla",core:"Abdomen",ccore:"Abdomen"};
+const MUO=["Pecho","Hombros","Tríceps","Espalda","Hombro posterior","Bíceps","Cuádriceps","Femoral y glúteo","Pantorrilla","Abdomen"];
+const CALP=new Set(Object.values(LAD).map(x=>x.c));
+/* músculos que se ayudan (uno trabaja en los ejercicios del otro): juntos en superserie se fatigan entre sí */
+const SYN=new Set(["Pecho|Tríceps","Hombros|Tríceps","Pecho|Hombros","Espalda|Bíceps","Espalda|Hombro posterior","Bíceps|Hombro posterior","Cuádriceps|Femoral y glúteo"]);
+/* afinidad de dos ejercicios en superserie: grupos opuestos (empuje-tirón, torso-pierna) 3 · con abdomen 2 ·
+   mismo grupo con otro músculo 1 (0,5 si se ayudan) · mismo músculo 0 (no se empareja) */
+function ssFit(a,b){const m=MU[a.c],n=MU[b.c];if(!m||!n||m===n)return 0;const g=GRP[a.c],h=GRP[b.c];return g===4||h===4?2:g!==h?3:SYN.has(m+"|"+n)||SYN.has(n+"|"+m)?.5:1}
+/* emparejamiento óptimo (son pocos ejercicios: búsqueda completa): el mayor número de parejas y, entre ellas, la mejor afinidad */
+function ssPairs(acc){
+  let best=acc.map(e=>[e]),bv=-1;
+  (function go(rest,out,v){
+    if(!rest.length){if(v>bv){bv=v;best=out}return}
+    const[a,...r]=rest;go(r,[...out,[a]],v);
+    r.forEach((b,j)=>{const f=ssFit(a,b);if(f>0)go(r.filter((_,k)=>k!==j),[...out,GRP[a.c]===4?[b,a]:[a,b]],v+10+f)});
+  })(acc,[],0);
+  return best;
+}
+/* ordena los accesorios en superseries cruzadas (mismas series en la pareja); las parejas con abdomen van al final */
+function ssOrder(acc){
+  acc.forEach(e=>e.ss=false);
+  const hasC=p=>p.some(e=>GRP[e.c]===4);
+  return ssPairs(acc.slice().sort((a,b)=>(GRP[a.c]===4)-(GRP[b.c]===4))).sort((a,b)=>hasC(a)-hasC(b))
+    .flatMap(p=>{if(p.length>1){p[0].ss=true;p[0].s=p[1].s=Math.max(p[0].s,p[1].s)}return p});
+}
 /* plantillas: cada día es una lista de patrones más larga de lo que cabe; el generador elige por prioridad y tiempo */
 const PIER_A=["squat","hinge","lunge","ham","calf","core"],PIER_B=["hinge","squat","lunge","ham","calf","core"];
 const EMP=["hpush","vpush","ipush","lat","tri","tri","core"],TIR=["vpull","hpull","hpull","rear","bi","bi","core"];
@@ -752,12 +785,8 @@ function buildDay(slots,x){
     if(tot+exMin(e,sse(e))<=budget||out.length<2){out.push(e);tot+=exMin(e,sse(e))}else e.s=e.s0;
   }
   for(let more=true;more;){more=false;for(const e of out){const one=exMin({...e,s:1},sse(e))-1;if(e.s<Math.min(5,e.s0+1)&&tot+one<=budget){e.s++;tot+=one;more=true;break}}}
-  /* superseries: accesorios de dos en dos, prefiriendo grupos opuestos (empuje con tirón); el abdomen va al final */
-  if(out.some(sse)){
-    const head=out.filter(e=>!sse(e)),acc=out.filter(sse).sort((a,b)=>(GRP[a.c]===4)-(GRP[b.c]===4)),pr=[];
-    while(acc.length){const a=acc.shift(),j=[b=>GRP[b.c]!==GRP[a.c]&&GRP[b.c]!==4,b=>GRP[b.c]!==4,()=>true].map(f=>acc.findIndex(f)).find(i=>i>=0),b=j!=null?acc.splice(j,1)[0]:null;if(b){a.ss=true;a.s=b.s=Math.max(a.s,b.s);pr.push(a,b)}else pr.push(a)}
-    out.splice(0,out.length,...head,...pr);
-  }
+  /* superseries: accesorios de dos en dos con músculos distintos (nunca el mismo), prefiriendo grupos opuestos */
+  if(out.some(sse))out.splice(0,out.length,...out.filter(e=>!sse(e)),...ssOrder(out.filter(sse)));
   out.forEach(e=>{x.week.add(e.n);delete e.ord;delete e.s0});
   return out;
 }
@@ -783,7 +812,7 @@ function gen(sure){
     list.push({name:"Día "+(list.length+1)+" · "+t,ex});
   });
   if(!list.length){$("m").textContent="Con ese equipo no se puede armar ningún día. Marca más equipo.";return}
-  plan={goal,lv,nd,days,time,eq,mode,foc,ss:ssOn,wu,skip,sp:goal==="fuerza"?3.5:2.5,start:plan?plan.start:today(),list};
+  plan={goal,lv,nd,days,time,eq,mode,foc,ss:ssOn,wu,skip,sp:goal==="fuerza"?3.5:2.5,start:plan?plan.start:today(),ssx:true,list};
   edit=false;selDay=0;rep=-1;sv();tab=1;render();scrollTo(0,0);
 }
 
@@ -997,7 +1026,8 @@ function vTrain(){
   const k=actK();if(k<0)return vRest(today());
   selDay=k;
   const d=dayOf(selDay);
-  return vSes(k)+vWarm(d)+blocks(d).map((b,bi)=>vBlock(d,b,bi===0)).join("");
+  return vSes(k)+vWarm(d)+blocks(d).map((b,bi)=>vBlock(d,b,bi===0)).join("")
+    +(rep==="add"?repPanel("add"):`<button class="ghost" style="margin-bottom:14px" onclick="openAdd()">＋ Agregar ejercicio</button>`);
 }
 
 /* ---------- Sesión: cronómetro del entrenamiento completo (iniciar / pausa / terminar) ---------- */
@@ -1037,6 +1067,7 @@ function blocks(d){const B=[];d.ex.forEach((e,i)=>{if(i>0&&d.ex[i-1].ss)B[B.leng
 /* descanso entre series (e.rest) y entre ejercicios (e.rx) del bloque que empieza en h; 1 min por defecto */
 const restOf=h=>{const e=curEx(h);return e.rest!=null?e.rest:REST0};
 const restExOf=h=>{const e=curEx(h);return e.rx!=null?e.rx:REST0};
+const RSS0=30,restSsOf=h=>{const e=curEx(h);return e.rss!=null?e.rss:RSS0};   // dentro de la superserie (e.rss)
 const noteOf=n=>notes[today()+"|"+n]||"";
 const prevNote=n=>{const k=Object.keys(notes).filter(k=>k.endsWith("|"+n)&&k.slice(0,10)<today()).sort().pop();return k?notes[k]:""};
 function setNote(i,v){const k=today()+"|"+curEx(i).n;v=v.trim();if(v)notes[k]=v;else delete notes[k];svn()}
@@ -1050,8 +1081,20 @@ function exHead(e,i,letter,first,col,R){
   +(col?"":`<label class="note">✎<input value="${esc(noteOf(e.n))}" placeholder="${esc(pn?"Nota anterior: "+pn:"Añadir notas…")}" maxlength="140" aria-label="Notas de ${esc(e.n)}" onchange="setNote(${i},this.value)"></label>`);
 }
 function menuH(e,i){
-  const nx=curEx(i+1),url="https://www.youtube.com/results?search_query="+encodeURIComponent(e.n+" técnica");
-  return`<div class="menu"><button onclick="tgHow(${i})">${HOW.has(i)?"Ocultar":"Ver"} cómo se hace</button><a href="${url}" target="_blank" rel="noopener" onclick="MENU=-1">Ver técnica en YouTube ↗</a><button onclick="MENU=-1;openRep(${i})">Cambiar ejercicio</button>${nx?`<button onclick="MENU=-1;tgSS(${i})">${e.ss?"Quitar superserie con el siguiente":"🔗 Hacer superserie con el siguiente"}</button>`:""}</div>`;
+  const d=dayOf(selDay),url="https://www.youtube.com/results?search_query="+encodeURIComponent(e.n+" técnica");
+  return`<div class="menu"><button onclick="tgHow(${i})">${HOW.has(i)?"Ocultar":"Ver"} cómo se hace</button><a href="${url}" target="_blank" rel="noopener" onclick="MENU=-1">Ver técnica en YouTube ↗</a><button onclick="MENU=-1;openRep(${i})">Cambiar ejercicio</button>`
+    +(inSS(d,i)?`<button onclick="unSS(${i})">Quitar superserie</button>`:d.ex.length>1?`<button onclick="MENU=-1;rep='s${i}';render()">🔗 Hacer superserie con…</button>`:"")
+    +(e.add?`<button onclick="delEx(${i})" style="color:var(--er)">Quitar este ejercicio</button>`:"")+`</div>`;
+}
+/* elegir pareja de superserie entre los ejercicios libres del día (los del plan entre sí; los añadidos hoy entre sí),
+   ordenados por afinidad: se avisa si es el mismo músculo o músculos que se ayudan */
+function ssPanel(i){
+  const d=dayOf(selDay),L=plan.list[selDay].ex.length,a=d.ex[i],
+    C=d.ex.map((e,j)=>({e,j,f:ssFit(a,e)})).filter(x=>x.j!==i&&!inSS(d,x.j)&&(i<L)===(x.j<L)).sort((x,y)=>y.f-x.f);
+  return`<div class="card" style="background:var(--bg);margin:10px 0 0"><label style="margin-top:0">Superserie de «${esc(a.n)}» con</label>`
+    +(C.length?C.map(x=>`<button class="ghost ssc" onclick="makeSS(${i},${x.j})"><b>${esc(x.e.n)}</b><small>${MU[x.e.c]||""}${x.f===0?" · mismo músculo: se fatigan entre sí":x.f<1?" · músculos que se ayudan":x.f>=2?" · ✓ buena combinación":""}</small></button>`).join("")
+      :`<small>No hay ejercicios libres para combinar. Agrega uno con «＋ Agregar ejercicio».</small>`)
+    +`<button class="ghost" style="margin-top:8px" onclick="rep=-1;render()">Cancelar</button></div>`;
 }
 const tgHow=i=>{HOW.has(i)?HOW.delete(i):HOW.add(i);MENU=-1;render()};
 const tgCol=i=>{const n=curEx(i).n;COL.has(n)?COL.delete(n):COL.add(n);render()};
@@ -1059,8 +1102,11 @@ function vBlock(d,b,first){
   const h=b[0],ss=b.length>1,col=COL.has(d.ex[h].n),RS=b.map(i=>rowsOf(d.ex[i])),PV=b.map(i=>prevS(d.ex[i].n));
   let o=`<div class="card ex" id="c${h}">`;
   b.forEach((i,bk)=>{o+=exHead(d.ex[i],i,ss?String.fromCharCode(65+bk):"",bk===0,col,RS[bk])});
-  b.forEach(i=>{if(rep===i)o+=repPanel(i)});
+  b.forEach(i=>{if(rep===i)o+=repPanel(i);if(rep==="s"+i)o+=ssPanel(i)});
   if(col)return o+`</div>`;
+  b.forEach((i,bk)=>{const n=d.ex[i].n,H=prevAll(n);if(!H.length)return;const op=HIS.has(n);
+    o+=`<button class="lastb" onclick="tgHis(${i})" aria-expanded="${op}">↺ ${ss?String.fromCharCode(65+bk)+" · ":""}Última vez (${fmt(H[0][0].d)}): ${setsTxt(H[0])}<span>${H.length>1?(op?"▴":"▾ semanas anteriores"):""}</span></button>`
+      +(op?`<div class="his">${H.slice(1).map(s=>`<div><small>${fmt(s[0].d)}</small><span>${setsTxt(s)}</span></div>`).join("")}</div>`:"")});
   const allT=b.every(i=>d.ex[i].t);
   o+=`<div class="srow sh"><span>SERIE</span><span>ANTERIOR</span><span style="grid-column:span 2">${UN().toUpperCase()}</span><span style="grid-column:span 2">${allT?"SEG":"REPS"}</span><span>ESFUERZO</span></div>`;
   const n=Math.max(...RS.map(r=>r.length));
@@ -1068,22 +1114,27 @@ function vBlock(d,b,first){
   if(first)o+=`<small class="hint">Toca el círculo y elige el esfuerzo (<i class="dot fx1"></i> fácil · <i class="dot fx2"></i> medio · <i class="dot fx3"></i> difícil): la serie se guarda y empieza el descanso.</small>`;
   b.forEach(i=>{const e=d.ex[i],free=RS[b.indexOf(i)].findIndex(l=>!l),g=e.tr||e.hi;if(e.t&&free>=0)o+=`<button class="ghost" style="margin-top:10px" onclick="tStart('work',${g},[${i},${free}],'${esc(e.n)} · serie ${free+1} · ${g} s')">⏱ Cronometrar serie ${free+1} de ${esc(e.n)} (${g} s)</button>`});
   const lastB=blocks(d).at(-1)[0]===h;
-  return o+`<div class="rsel"><button class="ghost" onclick="pkOpen(${h},'s')"><small>Entre series</small>⏱ ${mmss(restOf(h))}</button>${lastB?"":`<button class="ghost" onclick="pkOpen(${h},'x')"><small>Entre ejercicios</small>⇢ ${mmss(restExOf(h))}</button>`}</div>`
-    +`<div class="btns"><button class="ghost${SE===h?" on":""}" onclick="SE=SE===${h}?-1:${h};render()" aria-expanded="${SE===h}">${SE===h?"Listo":"＋/− Serie"}</button></div>`
-    +(SE===h?`<div class="stp"><button class="ghost" onclick="subRow([${b}])" ${n>1?"":"disabled"} aria-label="Quitar una serie">− Quitar</button><b>${n} ${ss?"rondas":"series"}</b><button class="add" onclick="addRow([${b}])" aria-label="Agregar una serie">+ Agregar</button></div>`:"")+`</div>`;
+  return o+`<div class="rsel">${ss?`<button class="ghost" onclick="pkOpen(${h},'a')"><small>Entre A y B</small>⇄ ${mmss(restSsOf(h))}</button>`:""}<button class="ghost" onclick="pkOpen(${h},'s')"><small>Entre ${ss?"rondas":"series"}</small>⏱ ${mmss(restOf(h))}</button>${lastB?"":`<button class="ghost" onclick="pkOpen(${h},'x')"><small>Entre ejercicios</small>⇢ ${mmss(restExOf(h))}</button>`}</div>`
+    +`<div class="btns"><button class="ghost${SE===h?" on":""}" onclick="SE=SE===${h}?-1:${h};SEQ=-1;render()" aria-expanded="${SE===h}">${SE===h?"Listo":"＋/− Serie"}</button></div>`
+    +(SE===h?`<div class="stp"><button class="ghost" onclick="subRow([${b}])" ${n>1?"":"disabled"} aria-label="Quitar una serie">− Quitar</button><b>${n} ${ss?"rondas":"series"}</b><button class="add" onclick="addRow([${b}])" aria-label="Agregar una serie">+ Agregar</button></div>`
+      +(SEQ===h?`<div class="seq"><small>¿${n} ${ss?"rondas":"series"} solo hoy o también en los próximos entrenamientos?</small><div class="btns"><button class="ghost" onclick="SEQ=-1;render()">Solo hoy</button><button class="add" onclick="setsPerm([${b}])">Siempre</button></div></div>`:""):"")+`</div>`;
 }
+/* i = índice del ejercicio a cambiar, o "add" para agregar uno; las opciones van agrupadas por músculo */
 function repPanel(i){
-  return`<div class="card" style="background:var(--bg);margin:10px 0 0">${ALT.length?`<label style="margin-top:0">Reemplazar «${esc(curEx(i).n)}» por</label><select id="rs">${ALT.map((a,k)=>`<option value="${k}">${esc(a.n)}</option>`).join("")}</select><small class="hint" style="margin-top:10px">¿Aplicar el cambio solo hoy o también en tus próximos entrenamientos?</small><div class="btns"><button class="ghost" onclick="doRep(${i},false)">Solo hoy</button><button class="add" onclick="doRep(${i},true)">Siempre</button></div><button class="ghost" style="margin-top:8px" onclick="rep=-1;render()">Cancelar</button>`:`<small>No hay alternativas con tu equipo. Ajusta el equipo en la pestaña Plan.</small><button class="ghost" style="margin-top:10px" onclick="rep=-1;render()">Cerrar</button>`}</div>`;
+  const add=i==="add",go=p=>add?`doAdd(${p})`:`doRep(${i},${p})`;let og="",opts="";
+  ALT.forEach((a,k)=>{const l=a.m+(a.g===3?" · otro grupo":"");if(l!==og){opts+=(og?"</optgroup>":"")+`<optgroup label="${esc(l)}">`;og=l}opts+=`<option value="${k}">${esc(a.n)}</option>`});
+  return`<div class="card"${add?"":` style="background:var(--bg);margin:10px 0 0"`}>${ALT.length?`<label style="margin-top:0">${add?"Agregar a este entrenamiento":`Reemplazar «${esc(curEx(i).n)}» por`}</label><select id="rs">${opts}</optgroup></select><small class="hint" style="margin-top:10px">¿${add?"Agregarlo":"Aplicar el cambio"} solo hoy o también en tus próximos entrenamientos?</small><div class="btns"><button class="ghost" onclick="${go(false)}">Solo hoy</button><button class="add" onclick="${go(true)}">Siempre</button></div><button class="ghost" style="margin-top:8px" onclick="rep=-1;render()">Cancelar</button>`:`<small>No hay alternativas con tu equipo. Ajusta el equipo en la pestaña Plan.</small><button class="ghost" style="margin-top:10px" onclick="rep=-1;render()">Cerrar</button>`}</div>`;
 }
 
 /* ---------- Selector de descanso (rueda de 0:00 a 5:00 cada 5 s) ---------- */
 const PKS=Array.from({length:61},(_,i)=>i*5),IT=52;
 let pk=null;
 const restTxt=s=>{const m=Math.floor(s/60),x=s%60;return(m?m+" min ":"")+(x||!m?x+" s":"")};
-/* kind "s" = entre series (e.rest) · "x" = entre ejercicios (e.rx) */
+/* kind "s" = entre series o rondas (e.rest) · "x" = entre ejercicios (e.rx) · "a" = dentro de la superserie, A → B (e.rss) */
+const PKT={s:"Descanso entre series",x:"Descanso entre ejercicios",a:"Descanso entre A y B"};
 function pkOpen(h,kind){
-  kind=kind||"s";pk={h,kind};const el=$("sh"),k=Math.max(0,PKS.indexOf(Math.round((kind==="x"?restExOf(h):restOf(h))/5)*5)),ti=kind==="x"?"Descanso entre ejercicios":"Descanso entre series";
-  el.innerHTML=`<div class="shbg" onclick="pkClose()"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${ti}"><i class="grab"></i><h2>${ti}</h2><small>${esc(curEx(h).n)}${blocks(dayOf(selDay)).find(b=>b[0]===h).length>1?" · superserie":""}${kind==="x"?" → siguiente ejercicio":""}</small>
+  kind=kind||"s";pk={h,kind};const ss=blocks(dayOf(selDay)).find(b=>b[0]===h).length>1,el=$("sh"),k=Math.max(0,PKS.indexOf(Math.round({s:restOf,x:restExOf,a:restSsOf}[kind](h)/5)*5)),ti=kind==="s"&&ss?"Descanso entre rondas":PKT[kind];
+  el.innerHTML=`<div class="shbg" onclick="pkClose()"></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${ti}"><i class="grab"></i><h2>${ti}</h2><small>${esc(curEx(h).n)}${ss?" · superserie":""}${kind==="x"?" → siguiente ejercicio":kind==="a"?" → «"+esc(curEx(h+1).n)+"» (0 = sin descanso)":""}</small>
   <div class="wheel" id="wh" onscroll="pkSc()"><div class="wsp"></div>${PKS.map((s,j)=>`<div class="wo" onclick="pkTo(${j})">${restTxt(s)}</div>`).join("")}<div class="wsp"></div></div>
   <div class="btns"><button class="ghost" onclick="pkStart()">▶ Iniciar</button><button class="add" onclick="pkSave()">Guardar</button></div></div>`;
   el.classList.add("on");$("wh").scrollTop=k*IT;pkSc();
@@ -1092,14 +1143,22 @@ const pkIdx=()=>Math.min(PKS.length-1,Math.max(0,Math.round($("wh").scrollTop/IT
 function pkSc(){if(!$("wh"))return;const k=pkIdx();document.querySelectorAll("#wh .wo").forEach((o,j)=>o.classList.toggle("on",j===k))}
 function pkTo(j){$("wh").scrollTo({top:j*IT,behavior:"smooth"})}
 function pkClose(){pk=null;$("sh").classList.remove("on");$("sh").innerHTML=""}
-function pkSave(){const s=PKS[pkIdx()],e=curEx(pk.h),x=pk.kind==="x";if(x)e.rx=s;else e.rest=s;e.rc=true;sv();svc();pkClose();render();$("m").textContent=(x?"Descanso entre ejercicios":"Descanso entre series")+" de «"+e.n+"»: "+restTxt(s)+"."}
+function pkSave(){const s=PKS[pkIdx()],e=curEx(pk.h),kd=pk.kind;e[{s:"rest",x:"rx",a:"rss"}[kd]]=s;e.rc=true;sv();svc();pkClose();render();$("m").textContent=PKT[kd]+" de «"+e.n+"»: "+restTxt(s)+"."}
 function pkStart(){const s=PKS[pkIdx()];pkClose();if(s>0)tStart("rest",s)}
 /* ---- tabla de series: una fila por serie planificada; se guarda al escribir las reps o al valorar el esfuerzo ---- */
 const DR={},XR={};   // borradores sin guardar por "ejercicio|fila" y filas extra añadidas con «+ Serie»
-/* cambios de ejercicio «solo por hoy»: cfg.ovr = {key: "perfil|fecha|día", m: {índice: ejercicio}}; no tocan el plan */
+/* cambios «solo por hoy»: cfg.ovr = {key: "perfil|fecha|día", m: {índice: ejercicio}, add: [ejercicios añadidos al final]};
+   no tocan el plan */
 const ovrKey=k=>prof.cur+"|"+today()+"|"+k;
 const ovrOf=k=>cfg.ovr&&cfg.ovr.key===ovrKey(k)?cfg.ovr.m:null;
-function dayOf(k){const d=plan.list[k],o=ovrOf(k);return o?{...d,ex:d.ex.map((e,i)=>o[i]||e)}:d}
+const addOf=k=>cfg.ovr&&cfg.ovr.key===ovrKey(k)&&cfg.ovr.add||[];
+const ovrNew=k=>{if(!cfg.ovr||cfg.ovr.key!==ovrKey(k))cfg.ovr={key:ovrKey(k),m:{}};cfg.ovr.add=cfg.ovr.add||[];return cfg.ovr};
+function dayOf(k){const d=plan.list[k],o=ovrOf(k),a=addOf(k);return o||a.length?{...d,ex:[...d.ex.map((e,i)=>o&&o[i]||e),...a]}:d}
+/* nuevo orden de los ejercicios del plan (ord = índices antiguos en el orden nuevo), con los cambios de hoy reubicados */
+function reorder(k,ord){
+  const ex=plan.list[k].ex,n=ord.map(j=>ex[j]),o=ovrOf(k);ex.splice(0,ex.length,...n);
+  if(o){const m={};ord.forEach((j,p)=>{if(o[j])m[p]=o[j]});cfg.ovr.m=m}
+}
 const curEx=i=>dayOf(selDay).ex[i];
 /* sesión anterior (excluye hoy), ordenada por fila */
 function prevS(n){const s=hist(n,4).find(s=>s[0].d!==today());return s?s.slice().sort((a,b)=>(a.k??0)-(b.k??0)):null}
@@ -1170,43 +1229,92 @@ function setEff(i,j,x){
    Solo se quitan filas vacías: una serie ya registrada se borra vaciando sus reps. Vale para la sesión de hoy. */
 let SE=-1;
 /* siempre por rondas completas: todos los ejercicios del bloque quedan con el mismo número de filas */
-function addRow(b){const E=b.map(curEx),len=Math.max(...E.map(e=>rowsOf(e).length));E.forEach(e=>{XR[e.n]=len+1-e.s});render()}
+/* tras cambiar las series se pregunta (SEQ = bloque) si el cambio es solo de hoy o también de los próximos entrenamientos */
+let SEQ=-1;
+const svx=()=>{cfg.xr={key:prof.cur+"|"+today(),m:{...XR}};svc()};   // las series extra de hoy sobreviven a recargar la app
+function addRow(b){const E=b.map(curEx),len=Math.max(...E.map(e=>rowsOf(e).length));E.forEach(e=>{XR[e.n]=len+1-e.s});SEQ=b[0];svx();render()}
 function subRow(b){
   const E=b.map(curEx),len=Math.max(...E.map(e=>rowsOf(e).length));
   if(len<=1)return;
   if(E.some(e=>rowsOf(e)[len-1])){render();$("m").textContent=(b.length>1?"La última ronda":"La última serie")+" ya tiene series registradas. Para quitarla, borra sus reps.";return}
-  E.forEach(e=>{XR[e.n]=len-1-e.s;delete DR[e.n+"|"+(len-1)]});render();
+  E.forEach(e=>{XR[e.n]=len-1-e.s;delete DR[e.n+"|"+(len-1)]});SEQ=b[0];svx();render();
 }
+/* «Siempre»: las series de hoy pasan al plan (en una superserie, a todos sus ejercicios) */
+function setsPerm(b){
+  const d=dayOf(selDay),n=Math.max(...b.map(i=>rowsOf(d.ex[i]).length)),pl=plan.list[selDay].ex;
+  b.forEach(i=>{const e=d.ex[i];e.s=n;if(pl[i])pl[i].s=n;delete XR[e.n]});
+  SEQ=-1;sv();svx();render();say("Ahora "+n+(b.length>1?" rondas":" series")+" también en tus próximos entrenamientos.");
+}
+/* historial por ejercicio: sesiones anteriores a hoy (la más reciente primero, hasta 6) */
+const HIS=new Set();
+const prevAll=n=>hist(n,7).filter(s=>s[0].d!==today()).slice(0,6).map(s=>s.slice().sort((a,b)=>(a.k??0)-(b.k??0)));
+const setsTxt=s=>s.map(l=>(l.w?l.w+"×":"")+l.r+(EX[l.ex]&&EX[l.ex].t?" s":"")).join(" · ");
+const tgHis=i=>{const n=curEx(i).n;HIS.has(n)?HIS.delete(n):HIS.add(n);render()};
 const say=t=>{$("m").textContent=t;if(!clk.mode){clk.note=t;tUI()}};
 /* tras valorar una serie: en superserie se pasa al siguiente sin descanso; si el bloque (ejercicio o superserie) quedó
    completo, descanso entre ejercicios; si no, descanso entre series */
 function afterSet(i){
   const d=dayOf(selDay),e=d.ex[i],nx=e.ss&&d.ex[i+1];
-  if(nx){say("Superserie: ahora «"+nx.n+"», sin descanso.");return}
+  /* dentro de la superserie (A → B) hay su propio descanso, 30 s por defecto; con 0 se pasa directo */
+  if(nx){const rs=restSsOf(blocks(d).find(x=>x.includes(i))[0]),t="Superserie: sigue «"+nx.n+"»";if(cfg.auto&&rs>0)tStart("rest",rs,null,t);else say(t+", sin descanso.");return}
   const B=blocks(d),b=B.find(x=>x.includes(i)),h=b[0],done=b.every(j=>rowsOf(d.ex[j]).every(Boolean)),last=B.indexOf(b)===B.length-1;
   if(done&&last){say("¡Último ejercicio terminado! Pulsa ■ Fin para guardar la sesión.");return}
   const nb=done&&B[B.indexOf(b)+1],t=done?"Descanso entre ejercicios · sigue «"+d.ex[nb[0]].n+"»":h<i?"Ronda completa · descansa y vuelve a «"+d.ex[h].n+"»":"Descanso entre series",rs=done?restExOf(h):restOf(h);
   if(cfg.auto&&rs>0)tStart("rest",rs,null,t);else say(t);
 }
-function tgSS(i){const e=curEx(i),nx=curEx(i+1);e.ss=!e.ss;if(e.ss&&nx)e.s=nx.s=Math.max(e.s,nx.s);sv();svc();render()}
 function del(id){log=log.filter(l=>l.id!==id);sv();render()}
-function openRep(i){
-  const d=dayOf(selDay),e=d.ex[i],used=d.ex.map(x=>x.n);
-  ALT=[];
-  [e.c,...Object.keys(SL).filter(c=>c!==e.c&&GRP[c]===GRP[e.c])].forEach(c=>SL[c].forEach(n=>{
-    if(!used.includes(n)&&!ALT.some(a=>a.n===n)&&EX[n].q.every(q=>plan.eq.includes(q)))ALT.push({n,c});
+/* opciones para cambiar (i) o agregar (i = null) un ejercicio, por músculo: primero el mismo músculo, luego los demás de
+   los grupos del día (p. ej. en Empuje: pecho, hombros y tríceps), el abdomen y al final los de otros grupos.
+   Solo con el equipo del plan y sin repetir ejercicios del día; en cada músculo, primero los del modo del plan. */
+function altsFor(i){
+  const d=dayOf(selDay),e=i==null?null:d.ex[i],used=d.ex.map(x=>x.n),G=new Set(d.ex.map(x=>GRP[x.c]).filter(g=>g!==4)),seen=new Set(),A=[],cal=c=>CALP.has(c)!==(plan.mode==="cal");
+  Object.keys(SL).forEach(c=>SL[c].forEach(n=>{
+    if(seen.has(n)||used.includes(n)||!EX[n].q.every(q=>plan.eq.includes(q)))return;seen.add(n);
+    A.push({n,c,m:MU[c],g:e&&MU[c]===MU[e.c]?0:G.has(GRP[c])?1:GRP[c]===4?2:3});
   }));
-  rep=i;render();
+  return A.sort((a,b)=>a.g-b.g||MUO.indexOf(a.m)-MUO.indexOf(b.m)||cal(a.c)-cal(b.c));
 }
-/* perm = true: cambia la rutina (también los próximos entrenamientos); false: solo la sesión de hoy */
+function openRep(i){ALT=altsFor(i);rep=i;render()}
+function openAdd(){ALT=altsFor(null);rep="add";render()}
+/* perm = true: cambia la rutina (también los próximos entrenamientos); false: solo la sesión de hoy.
+   Si cambia de músculo, series y reps se recalculan para el ejercicio nuevo. */
 function doRep(i,perm){
   const a=ALT[+$("rs").value];if(!a)return;
-  const o=curEx(i),ne={...mk(a.n,a.c,plan.goal,plan.lv,plan.time,plan.mode,false,o.tier),f:!!o.f,ss:!!o.ss,rest:o.rest,rx:o.rx,rc:o.rc};
-  if(perm){plan.list[selDay].ex[i]=ne;const ov=ovrOf(selDay);if(ov)delete ov[i];sv()}
-  else{if(!ovrOf(selDay))cfg.ovr={key:ovrKey(selDay),m:{}};cfg.ovr.m[i]=ne}
+  const o=curEx(i),same=a.c===o.c,L=plan.list[selDay].ex.length,
+    ne={...mk(a.n,a.c,plan.goal,plan.lv,plan.time,plan.mode,false,same?o.tier:0),f:same&&!!o.f,ss:!!o.ss,rest:o.rest,rx:o.rx,rss:o.rss,rc:o.rc,add:o.add};
+  if(i>=L){const ad=addOf(selDay);if(perm){ad.splice(i-L,1);plan.list[selDay].ex.push(ne);sv()}else ad[i-L]=ne}
+  else if(perm){plan.list[selDay].ex[i]=ne;const ov=ovrOf(selDay);if(ov)delete ov[i];sv()}
+  else ovrNew(selDay).m[i]=ne;
   svc();rep=-1;render();
-  $("m").textContent=perm?"Ejercicio cambiado en tu rutina: se mantiene en los próximos entrenamientos.":"Cambiado solo por hoy. La próxima vez vuelve «"+plan.list[selDay].ex[i].n+"».";
+  $("m").textContent=perm?"Ejercicio cambiado en tu rutina: se mantiene en los próximos entrenamientos.":i>=L?"Cambiado solo por hoy.":"Cambiado solo por hoy. La próxima vez vuelve «"+plan.list[selDay].ex[i].n+"».";
 }
+/* agrega un ejercicio al final del día: solo hoy (cfg.ovr.add) o en la rutina */
+function doAdd(perm){
+  const a=ALT[+$("rs").value];if(!a)return;
+  const ne={...mk(a.n,a.c,plan.goal,plan.lv,plan.time,plan.mode,false),add:true};
+  if(perm){plan.list[selDay].ex.push(ne);sv()}else ovrNew(selDay).add.push(ne);
+  svc();rep=-1;render();
+  const c=$("c"+dayOf(selDay).ex.indexOf(ne));if(c)c.scrollIntoView({block:"center"});
+  say("«"+a.n+"» agregado "+(perm?"a tu rutina: también aparecerá en los próximos entrenamientos.":"solo por hoy."));
+}
+/* quitar un ejercicio que agregó el usuario (de hoy o de la rutina); sus series ya registradas se conservan */
+function delEx(i){
+  const d=dayOf(selDay),L=plan.list[selDay].ex.length,n=d.ex[i].n;
+  if(i>0&&d.ex[i-1].ss)d.ex[i-1].ss=false;
+  if(i>=L)addOf(selDay).splice(i-L,1);
+  else reorder(selDay,[...plan.list[selDay].ex.keys()].filter(j=>j!==i));
+  MENU=-1;HOW.clear();sv();svc();render();say("«"+n+"» quitado del entrenamiento.");
+}
+/* superserie con el ejercicio elegido: se coloca justo después de este (cambia el orden de la rutina) */
+function makeSS(i,j){
+  const d=dayOf(selDay),L=plan.list[selDay].ex.length,a=d.ex[i],b=d.ex[j];
+  if(i<L){const ord=[...plan.list[selDay].ex.keys()].filter(x=>x!==j);ord.splice(ord.indexOf(i)+1,0,j);reorder(selDay,ord)}
+  else{const ad=addOf(selDay);ad.splice(j-L,1);ad.splice(ad.indexOf(a)+1,0,b)}
+  const k=dayOf(selDay).ex.indexOf(a),pa=plan.list[selDay].ex[k];
+  [a,pa].forEach(x=>{if(x)x.ss=true});a.s=b.s=Math.max(a.s,b.s);
+  rep=-1;MENU=-1;HOW.clear();sv();svc();render();say("Superserie: «"+a.n+"» + «"+b.n+"».");
+}
+function unSS(i){const d=dayOf(selDay),L=plan.list[selDay].ex.length,k=d.ex[i].ss&&d.ex[i+1]?i:i-1;[d.ex[k],k<L&&plan.list[selDay].ex[k]].forEach(x=>{if(x)x.ss=false});MENU=-1;sv();svc();render()}
 
 function vRev(){
   if(!plan)return '<div class="card empty">Primero genera tu plan en la pestaña Plan.</div>';
@@ -1349,8 +1457,19 @@ function boot(){
   if(plan&&plan.list.some(d=>d.ex.some(e=>!EX[e.n])))plan=null;
   /* descansos generados por versiones anteriores (no elegidos a mano con la rueda) pasan al predeterminado de 1 min */
   if(plan&&!plan.r60){plan.list.forEach(d=>d.ex.forEach(e=>{if(!e.rc)e.rest=REST0}));plan.r60=true;sv()}
-  selDay=0;rep=-1;edit=false;selEx="";tab=1;vDay=null;SE=-1;
+  /* superseries de versiones anteriores con el mismo músculo o con músculos que se ayudan (p. ej. tríceps + tríceps):
+     se vuelven a emparejar cruzadas una sola vez */
+  if(plan&&!plan.ssx){
+    plan.list.forEach(d=>{
+      if(!d.ex.some((e,i)=>e.ss&&d.ex[i+1]&&ssFit(e,d.ex[i+1])<1))return;
+      const inB=blocks(d).filter(b=>b.length>1).flat().map(i=>d.ex[i]);
+      d.ex.splice(0,d.ex.length,...d.ex.filter(e=>!inB.includes(e)),...ssOrder(inB));cfg.ovr=null;
+    });
+    plan.ssx=true;sv();svc();
+  }
+  selDay=0;rep=-1;edit=false;selEx="";tab=1;vDay=null;SE=-1;SEQ=-1;HIS.clear();
   for(const k in DR)delete DR[k];for(const k in XR)delete XR[k];
+  if(cfg.xr&&cfg.xr.key===prof.cur+"|"+today())Object.assign(XR,cfg.xr.m);
   if(plan){const k=actK();selDay=k>=0?k:0;tab=2}
 }
 /* ---------- Perfiles ---------- */
