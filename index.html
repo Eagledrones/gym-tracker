@@ -36,7 +36,7 @@ small{color:var(--mu)}
 .del{background:none;border:0;color:var(--mu);font-size:20px;padding:4px 8px}
 .pr{color:var(--ok);font-weight:700;font-size:12px;margin-left:6px}
 .chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700;background:color-mix(in srgb,currentColor 15%,transparent)}
-.up{color:var(--ok)}.hold{color:var(--wa)}.down{color:var(--er)}.new{color:var(--mu)}
+.up{color:var(--ok)}.hold,.keep{color:var(--wa)}.down{color:var(--er)}.new{color:var(--mu)}
 .stats{display:flex;gap:10px;margin:12px 0}
 .stats div{flex:1;background:var(--panel);border-radius:16px;padding:10px;text-align:center}
 .stats b{display:block;font-size:24px;font-weight:800;letter-spacing:-.03em}.stats span{font-size:12px;color:var(--mu)}
@@ -834,27 +834,47 @@ function trend(e,bf){
 /* progresiones de calistenia: siguiente (dir=1) o anterior (dir=-1) escalón disponible con el equipo */
 const canDo=n=>EX[n].q.every(q=>(plan?plan.eq:[]).includes(q));
 function rung(n,dir){const L=LAD[n];if(!L||!plan)return null;const s=SL[L.c];for(let j=L.i+dir;j>=0&&j<s.length;j+=dir)if(canDo(s[j]))return s[j];return null}
-/* esfuerzo marcado: todas en verde = sobra margen; media en rojo = al límite */
+/* semáforo (l.x): 1 verde = fácil, sobraban ~3+ reps · 2 amarillo = 1-2 reps en reserva (la zona buscada) ·
+   3 rojo = al fallo o casi, muy difícil. Una serie sin marcar cuenta como amarillo.
+   Base: Helms et al. 2016 (escala RIR: entrenar a ~1-2 reps del fallo), ACSM 2009 (subir la carga un 2-10 % cuando se
+   superan las reps objetivo) y Refalo et al. 2023 (acercarse al fallo sube la fatiga sin más músculo garantizado).
+   Regla de cuidado: tras una serie en rojo nunca se pide más peso ni más reps en esa serie. */
 const easy=s=>s.length>0&&s.every(a=>a.x===1);
 const hard=s=>{const v=s.filter(a=>a.x).map(a=>a.x);return v.length>0&&avg(v)>=2.5};
-const HARD=" Tus series se sintieron difíciles (rojo): no aumentes la dificultad hasta que se sientan en amarillo.";
+const anyRed=s=>s.some(a=>a.x===3);
+const SEM=" Según tu semáforo de la última vez: verde +2 reps, amarillo +1, rojo las mismas (mira las flechas).";
 /* bf: analiza solo las sesiones anteriores a esa fecha (al entrenar, today(): la recomendación no cambia a mitad de sesión) */
 function rec(e,bf){
   const s=sess(e.n,bf),t=trend(e,bf),u=e.t?" s":" reps";
   if(!s)return{k:"new",t:"Sin datos",m:e.bw?"Haz tus series con buena técnica y registra "+(e.t?"los segundos.":"las reps."):(e.w?"Empieza con "+e.w+" "+UN()+".":"Elige un peso con el que llegues a "+e.hi+" reps dejando 2 en reserva y regístralo."),w:e.w};
+  const h2=hist(e.n,2,bf)[1],mid=Math.round((e.lo+e.hi)/2);
   if(e.bw){
-    const n=s.length,av=avg(s.map(a=>a.r)),top=n>=e.s&&s.every(a=>a.r>=e.hi),r=e.t?Math.min(e.hi,Math.round(av)+5):Math.min(e.hi,Math.floor(av)+1),nx=rung(e.n,1),pv=rung(e.n,-1);
-    if(top)return nx?{k:"up",t:"Siguiente progresión",m:"Completaste "+n+"×"+e.hi+u+". Pasa a «"+nx+"» y empieza en "+e.lo+u+".",nx,r:e.lo,w:e.w}
-      :{k:"up",t:"Más dificultad",m:"Completaste "+n+"×"+e.hi+u+". Hazlo más difícil (tempo lento, pausa o lastre) y vuelve a "+e.lo+u+".",r:e.lo,w:e.w};
+    const n=s.length,av=avg(s.map(a=>a.r)),top=n>=e.s&&s.every(a=>a.r>=e.hi),nx=rung(e.n,1),pv=rung(e.n,-1),hd=hard(s),hd2=hd&&h2&&hard(h2);
+    /* rojo: mantener; si se repite o quedó por debajo del rango, bajar la dificultad */
+    if(hd&&(hd2||av<e.lo))return pv?{k:"down",t:"Progresión más fácil",m:(hd2?"Dos sesiones seguidas en rojo (muy difícil).":"Fue muy difícil (rojo) y quedaste por debajo de "+e.lo+u+".")+" Para cuidarte, vuelve a «"+pv+"» hasta dominar "+e.hi+u+".",pv,r:e.lo,w:e.w}
+      :{k:"down",t:e.t?"Bajar tiempo":"Bajar reps",m:(hd2?"Dos sesiones seguidas en rojo (muy difícil).":"Fue muy difícil (rojo).")+" Haz "+Math.max(1,Math.round(av)-(e.t?10:2))+u+" por serie, lejos del fallo, hasta que se sienta en amarillo.",r:Math.max(1,Math.round(av)-(e.t?10:2)),w:e.w};
+    if(hd)return{k:"keep",t:"Repetir igual",m:"La última vez fue muy difícil (rojo). Repite las mismas"+u+" sin sumar hasta que se sienta en amarillo; si vuelve a salir en rojo, la app te bajará la dificultad.",r:Math.round(av),w:e.w};
+    if(top&&!anyRed(s))return nx?{k:"up",t:"Siguiente progresión",m:"Completaste "+n+"×"+e.hi+u+" sin series en rojo. Pasa a «"+nx+"» y empieza en "+e.lo+u+".",nx,r:e.lo,w:e.w}
+      :{k:"up",t:"Más dificultad",m:"Completaste "+n+"×"+e.hi+u+" sin series en rojo. Hazlo más difícil (tempo lento, pausa o lastre) y vuelve a "+e.lo+u+".",r:e.lo,w:e.w};
     if(t&&(t.stall||t.drop))return{k:"deload",t:"Descarga",m:(t.stall?"Tres sesiones sin mejorar.":"Rendimiento a la baja dos sesiones seguidas.")+" Haz una semana suave con "+Math.max(1,e.s-1)+" series lejos del fallo"+(pv?" o practica «"+pv+"»":"")+" y retoma.",r:e.lo,w:e.w};
     if(av<e.lo&&pv)return{k:"down",t:"Progresión más fácil",m:"Promedio de "+av.toFixed(1)+u+", por debajo de "+e.lo+". Vuelve a «"+pv+"» hasta dominar "+e.hi+u+".",pv,r:e.lo,w:e.w};
-    return{k:"hold",t:e.t?"Sumar tiempo":"Sumar reps",m:"Busca "+r+u+" por serie"+(n<e.s?", completando las "+e.s+" series":"")+(t&&t.p>1?". Vas mejorando, sigue así.":".")+(hard(s)?HARD:""),r,w:e.w};
+    if(top)return{k:"hold",t:"Repetir",m:"Llegaste a "+e.hi+u+" pero con alguna serie en rojo. Repite hasta lograrlo sin rojo; entonces la app te subirá la dificultad.",r:e.hi,w:e.w};
+    return{k:"hold",t:e.t?"Sumar tiempo":"Sumar reps",m:(e.t?"Suma segundos hasta "+e.hi+" s.":"Suma reps hasta "+e.hi+".")+(e.t?" Según tu semáforo de la última vez: verde +10 s, amarillo +5 s, rojo lo mismo.":SEM),r:Math.min(e.hi,Math.floor(av)+1),w:e.w};
   }
-  const mx=Math.max(...s.map(a=>a.w)),x=s.filter(a=>a.w===mx),n=x.length,av=avg(x.map(a=>a.r)),top=n>=e.s&&x.every(a=>a.r>=e.hi),r=Math.min(e.hi,Math.floor(av)+1),un=" "+UN();
-  if(top){const ez=easy(x),big=ez||(t&&t.p>5&&x.every(a=>a.r>=e.hi+2)),w=mx+inc(e)*(big?2:1);return{k:"up",t:"Subir peso",m:"Hiciste "+n+"×"+e.hi+" con "+mx+un+(ez?" y todas se sintieron fáciles (verde)":big?", con margen y tendencia al alza":"")+". Sube a "+w+un+" y vuelve a "+e.lo+" reps.",w,r:e.lo}}
+  const mx=Math.max(...s.map(a=>a.w)),x=s.filter(a=>a.w===mx),n=x.length,av=avg(x.map(a=>a.r)),top=n>=e.s&&x.every(a=>a.r>=e.hi),un=" "+UN(),
+    hd=hard(x),hd2=hd&&h2&&hard(h2),dn=Math.max(0,Math.min(mx-inc(e),rnd(mx*.93)));
+  /* rojo: nunca subir. Dos veces seguidas o por debajo del rango → bajar ~5-10 % el peso (con algo más de reps);
+     una vez → repetir exactamente lo mismo */
+  if(hd&&(hd2||av<e.lo)){const r=Math.min(e.hi,Math.max(mid,Math.round(av)));return{k:"down",t:"Bajar peso",m:(hd2?"Dos sesiones seguidas en rojo (muy difícil).":"Fue muy difícil (rojo) y quedaste por debajo de "+e.lo+" reps.")+" Para cuidar el músculo baja a "+dn+un+"; con menos peso puedes hacer "+r+" reps.",w:dn,r}}
+  if(hd)return{k:"keep",t:"Repetir igual",m:"La última vez fue muy difícil (rojo). Repite "+mx+un+" con las mismas reps, sin subir peso ni reps, hasta que se sienta en amarillo. Si vuelve a salir en rojo, la app te bajará el peso.",w:mx,r:Math.round(av)};
+  /* tope del rango sin rojo → subir (doble salto solo si todo fue verde y sigue siendo ≤10 % de la carga) */
+  if(top&&!anyRed(x)){const ez=easy(x),w=mx+inc(e)*(ez&&inc(e)*2<=mx*.1?2:1);return{k:"up",t:"Subir peso",m:"Hiciste "+n+"×"+e.hi+" con "+mx+un+(ez?" y todo en verde (fácil)":" sin series en rojo")+". Sube a "+w+un+" y empieza en "+e.lo+" reps.",w,r:e.lo}}
+  /* todo en verde y cerca del tope → ya puedes con más peso */
+  if(easy(x)&&n>=e.s&&av>=e.hi-2){const w=mx+inc(e),r=Math.max(e.lo,Math.floor(av)-2);return{k:"up",t:"Subir peso",m:"Todas tus series fueron fáciles (verde) y estás cerca del tope del rango. Sube a "+w+un+" y busca "+r+" reps.",w,r}}
   if(t&&t.stall){const w=Math.max(0,rnd(mx*.9));return{k:"deload",t:"Descarga",m:"Tres sesiones sin mejorar tu 1RM estimado. Baja a "+w+un+" una semana, haz "+e.s+"×"+e.lo+" sin llegar al fallo y vuelve a progresar desde ahí.",w,r:e.lo}}
-  if(av<e.lo||(t&&t.drop)){const w=Math.max(0,rnd(mx*.9));return{k:"down",t:"Bajar peso",m:(av<e.lo?"Promedio de "+av.toFixed(1)+" reps, por debajo de "+e.lo+".":"Tu rendimiento bajó dos sesiones seguidas.")+" Baja a "+w+un+" para trabajar dentro del rango.",w,r:Math.round((e.lo+e.hi)/2)}}
-  return{k:"hold",t:"Mantener peso",m:"Mantén "+mx+un+" y busca "+r+" reps por serie"+(n<e.s?", completando las "+e.s+" series":"")+(t&&t.p>1?". Vas progresando, sigue así.":".")+(hard(x)?HARD:""),w:mx,r};
+  if(av<e.lo||(t&&t.drop)){const w=Math.max(0,rnd(mx*.9));return{k:"down",t:"Bajar peso",m:(av<e.lo?"Promedio de "+av.toFixed(1)+" reps, por debajo de "+e.lo+".":"Tu rendimiento bajó dos sesiones seguidas.")+" Baja a "+w+un+" para trabajar dentro del rango.",w,r:mid}}
+  if(top)return{k:"hold",t:"Mantener peso",m:"Llegaste a "+e.hi+" reps pero con alguna serie en rojo. Repite "+mx+un+" hasta lograrlo sin rojo; entonces la app te subirá el peso.",w:mx,r:e.hi};
+  return{k:"hold",t:"Mantener peso",m:"Mantén "+mx+un+" y suma reps hasta "+e.hi+(n<e.s?", completando las "+e.s+" series":"")+"."+SEM,w:mx,r:Math.min(e.hi,Math.floor(av)+1)};
 }
 const nextTxt=(e,r)=>(r.nx||r.pv?"«"+(r.nx||r.pv)+"» · ":"")+e.s+" × "+r.r+(e.t?" s":" reps")+(!e.bw&&r.w?" con "+r.w+" "+UN():"");
 
@@ -1109,11 +1129,10 @@ function vBlock(d,b,first){
   if(col)return o+`</div>`;
   /* recomendación de la app para hoy (analiza las sesiones anteriores): qué hacer y por qué */
   b.forEach((i,bk)=>{const e=d.ex[i],r=RC[bk];if(r.k==="new")return;
-    /* al mantener, el objetivo es por serie (una rep más donde no se llegó al tope), igual que las flechas */
-    const u=e.t?" s":" reps",kg=!e.bw&&r.w?" con "+r.w+" "+UN():"",hold=r.k==="hold",
-      head=hold?e.s+" × hasta "+e.hi+u+kg:nextTxt(e,r),
-      msg=hold?(kg?"Mantén "+r.w+" "+UN()+" y suma ":"Suma ")+(e.t?"5 s":"1 rep")+" en cada serie que no llegó a "+e.hi+u+" (flechas ↑)."+(hard(sess(e.n,today()))?HARD:""):r.m;
-    o+=`<div class="recl"><span class="chip ${r.k}">${ss?String.fromCharCode(65+bk)+" · ":""}${r.k==="up"?"↑ ":r.k==="down"||r.k==="deload"?"↓ ":""}${r.t}</span> <b>${esc(head)}</b><small>${esc(msg)}</small></div>`});
+    /* al mantener o repetir, el objetivo es por serie según su color (igual que las flechas) */
+    const u=e.t?" s":" reps",kg=!e.bw&&r.w?" con "+r.w+" "+UN():"",
+      head=r.k==="hold"?e.s+" × hasta "+e.hi+u+kg:r.k==="keep"?"Igual que la última vez"+kg:nextTxt(e,r);
+    o+=`<div class="recl"><span class="chip ${r.k}">${ss?String.fromCharCode(65+bk)+" · ":""}${r.k==="up"?"↑ ":r.k==="down"||r.k==="deload"?"↓ ":r.k==="keep"?"= ":""}${r.t}</span> <b>${esc(head)}</b><small>${esc(r.m)}</small></div>`});
   b.forEach((i,bk)=>{const n=d.ex[i].n,H=prevAll(n);if(!H.length)return;const op=HIS.has(n);
     o+=`<button class="lastb" onclick="tgHis(${i})" aria-expanded="${op}">↺ ${ss?String.fromCharCode(65+bk)+" · ":""}Última vez (${fmt(H[0][0].d)}): ${setsTxt(H[0])}<span>${H.length>1?(op?"▴":"▾ semanas anteriores"):""}</span></button>`
       +(op?`<div class="his">${H.slice(1).map(s=>`<div><small>${fmt(s[0].d)}</small><span>${setsTxt(s)}</span></div>`).join("")}</div>`:"")});
@@ -1183,13 +1202,16 @@ function rowsOf(e){
 const baseLen=e=>e.s+(XR[e.n]||0);
 function blockOf(e){if(!plan)return null;const d=dayOf(selDay),i=d.ex.indexOf(e);return i<0?null:blocks(d).find(b=>b.includes(i)).map(j=>d.ex[j])}
 function planLen(e){const b=blockOf(e);return b?Math.max(...b.map(baseLen)):baseLen(e)}
-/* objetivo de una serie según el análisis de la app (rec): subir/bajar/mantener el peso del ejercicio y, al mantener,
-   una rep más que la última vez en esa serie (5 s en ejercicios por tiempo) hasta el tope del rango. null = sin análisis
-   (primera vez) o cambio de progresión en calistenia (lo indica la recomendación del ejercicio). */
+/* objetivo de una serie según el análisis de la app (rec) y el color con que se hizo la última vez (q.x):
+   subir/bajar → peso y reps de la recomendación · repetir (rojo) → exactamente lo mismo · mantener → según el color de
+   esa serie: verde +2 reps, amarillo (o sin marcar) +1, rojo las mismas (×5 s en ejercicios por tiempo), hasta el tope.
+   null = sin análisis (primera vez) o cambio de progresión en calistenia (lo indica la recomendación del ejercicio). */
 function goalRow(e,q,rc){
   if(!q||!rc||rc.k==="new"||rc.nx||rc.pv)return null;
+  if(rc.k==="keep")return{w:q.w,r:q.r};
   const w=e.bw||rc.w==null?q.w:rc.w;
-  return{w,r:rc.k==="hold"?(w>q.w?q.r:Math.min(e.hi,q.r+(e.t?5:1))):rc.r};
+  if(rc.k!=="hold")return{w,r:rc.r};
+  return{w,r:w>q.w||q.x===3||q.r>=e.hi?q.r:Math.min(e.hi,q.r+(q.x===1?2:1)*(e.t?5:1))};
 }
 /* fila: ANTERIOR = lo que se hizo la última vez en esa serie (aunque fuera otro día; si hoy hay más series, la última).
    En gris (placeholder) va el objetivo que recomienda la app; sin historial, lo de la última vez o el objetivo del plan.
